@@ -1,25 +1,39 @@
 package solara;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.Scanner;
 
 /** Loads and saves reservations in data/reservations.txt. */
 public class ReservationRepository {
-    private static final Path FILE = Paths.get("data", "reservations.txt");
-    private final List<Reservation> reservations = new ArrayList<>();
+    private List<Reservation> reservations = new ArrayList<>();
 
     public ReservationRepository() {
         load();
     }
 
     private void load() {
-        if (!Files.exists(FILE)) return;
-        try {
-            for (String line : Files.readAllLines(FILE)) {
-                if (line.isBlank()) continue;
+        File file = new File("data/reservations.txt");
+
+        if (!file.exists()) {
+            return;
+        }
+
+        try (Scanner reader = new Scanner(file)) {
+            while (reader.hasNextLine()) {
+                String line = reader.nextLine();
+
+                if (line.trim().isEmpty()) {
+                    continue;
+                }
+
                 try {
-                    reservations.add(Reservation.fromFileLine(line));
+                    Reservation reservation = Reservation.fromFileLine(line);
+                    reservations.add(reservation);
                 } catch (RuntimeException e) {
                     System.out.println("Skipped a damaged record in reservations.txt");
                 }
@@ -30,57 +44,95 @@ public class ReservationRepository {
     }
 
     public void save() {
-        List<String> lines = new ArrayList<>();
-        for (Reservation r : reservations) lines.add(r.toFileLine());
-        try {
-            Files.createDirectories(FILE.getParent());
-            Files.write(FILE, lines);
+        File folder = new File("data");
+
+        if (!folder.exists()) {
+            if (!folder.mkdirs()) {
+                System.out.println("Could not create the data folder.");
+                return;
+            }
+        }
+
+        try (FileWriter writer = new FileWriter("data/reservations.txt")) {
+            for (int i = 0; i < reservations.size(); i++) {
+                Reservation reservation = reservations.get(i);
+                writer.write(reservation.toFileLine());
+                writer.write(System.lineSeparator());
+            }
         } catch (IOException e) {
             System.out.println("Error saving reservations: " + e.getMessage());
         }
     }
 
-    public void add(Reservation r) {
-        reservations.add(r);
+    public void add(Reservation reservation) {
+        reservations.add(reservation);
         save();
     }
 
-    public List<Reservation> getAll() { return reservations; }
+    public List<Reservation> getAll() {
+        return reservations;
+    }
 
-    public Reservation findByReference(String ref) {
-        for (Reservation r : reservations) {
-            if (r.getReference().equalsIgnoreCase(ref.trim())) return r;
+    public Reservation findByReference(String reference) {
+        for (int i = 0; i < reservations.size(); i++) {
+            Reservation reservation = reservations.get(i);
+
+            if (reservation.getReference().equalsIgnoreCase(reference.trim())) {
+                return reservation;
+            }
         }
+
         return null;
     }
 
-    public List<Reservation> searchByName(String text) {
-        List<Reservation> found = new ArrayList<>();
-        for (Reservation r : reservations) {
-            if (r.getGuestName().toLowerCase().contains(text.toLowerCase().trim())) found.add(r);
+    public List<Reservation> searchByName(String name) {
+        List<Reservation> results = new ArrayList<>();
+        String searchText = name.trim().toLowerCase();
+
+        for (int i = 0; i < reservations.size(); i++) {
+            Reservation reservation = reservations.get(i);
+            String guestName = reservation.getGuestName().toLowerCase();
+
+            if (guestName.contains(searchText)) {
+                results.add(reservation);
+            }
         }
-        return found;
+
+        return results;
     }
 
-    public List<Reservation> findByStatus(ReservationStatus s) {
-        List<Reservation> found = new ArrayList<>();
-        for (Reservation r : reservations) {
-            if (r.getStatus() == s) found.add(r);
+    public List<Reservation> findByStatus(ReservationStatus status) {
+        List<Reservation> results = new ArrayList<>();
+
+        for (int i = 0; i < reservations.size(); i++) {
+            Reservation reservation = reservations.get(i);
+
+            if (reservation.getStatus() == status) {
+                results.add(reservation);
+            }
         }
-        return found;
+
+        return results;
     }
 
     /** Creates a reference like SOL-20261027-A3F9 that is not used yet. */
     public String generateReference() {
-        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-        Random rnd = new Random();
-        String ref;
+        String characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        Random random = new Random();
+        String reference;
+
         do {
-            StringBuilder sb = new StringBuilder("SOL-");
-            sb.append(java.time.LocalDate.now().toString().replace("-", "")).append("-");
-            for (int i = 0; i < 4; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
-            ref = sb.toString();
-        } while (findByReference(ref) != null);
-        return ref;
+            String date = java.time.LocalDate.now().toString();
+            date = date.replace("-", "");
+
+            reference = "SOL-" + date + "-";
+
+            for (int i = 0; i < 4; i++) {
+                int position = random.nextInt(characters.length());
+                reference = reference + characters.charAt(position);
+            }
+        } while (findByReference(reference) != null);
+
+        return reference;
     }
 }
