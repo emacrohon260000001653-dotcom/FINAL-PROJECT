@@ -9,10 +9,12 @@ public class AdminMenu {
 
     private final ReservationRepository repo;
     private final PriceList prices;
+    private final PaymentManager payments;
 
     public AdminMenu(ReservationRepository repo, PriceList prices) {
         this.repo = repo;
         this.prices = prices;
+        this.payments = new PaymentManager(repo);
     }
 
     public void show() {
@@ -23,7 +25,7 @@ public class AdminMenu {
             System.out.println("2. Search Reservation (reference or guest name)");
             System.out.println("3. View Reservations by Status");
             System.out.println("4. Reservation Management (confirm / check in / ...)");
-            System.out.println("5. Payments            [TODO - teammate]");
+            System.out.println("5. Payments");
             System.out.println("6. Edit Prices         [TODO - teammate]");
             System.out.println("7. Statistics          [TODO - teammate]");
             System.out.println("8. Export to CSV       [TODO - teammate]");
@@ -34,7 +36,8 @@ public class AdminMenu {
                 case 2 -> search();
                 case 3 -> viewByStatus();
                 case 4 -> managementMenu();
-                case 5, 6, 7, 8 -> { System.out.println("Coming soon (not built yet)."); }
+                case 5 -> payments.show();
+                case 6, 7, 8 -> { System.out.println("Coming soon (not built yet)."); }
                 case 0 -> { System.out.println("Logged out."); return; }
             }
         }
@@ -82,18 +85,15 @@ public class AdminMenu {
             System.out.println("\n--- RESERVATION MANAGEMENT ---");
             System.out.println("1. Confirm a PENDING booking");
             System.out.println("2. Check In a CONFIRMED booking");
-            System.out.println("3. Mark a booking COMPLETED   [TODO - teammate]");
-            System.out.println("4. Cancel a booking           [TODO - teammate]");
+            System.out.println("3. Mark a CHECKED IN booking COMPLETED");
+            System.out.println("4. Cancel a booking");
             System.out.println("0. Back");
             int choice = InputHelper.readInt("Choose: ", 0, 4);
             switch (choice) {
                 case 1 -> confirmBooking();
                 case 2 -> checkInGuest();
-                case 3 -> System.out.println("Coming soon (not built yet).");
-                // TODO: only CHECKED IN bookings can become COMPLETED.
-                case 4 -> System.out.println("Coming soon (not built yet).");
-                // TODO: ask InputHelper.confirm(...) first, then set CANCELLED
-                //       and store the reason with r.setNote(...).
+                case 3 -> completeBooking();
+                case 4 -> cancelBooking();
                 case 0 -> { return; }
             }
         }
@@ -129,6 +129,49 @@ public class AdminMenu {
             System.out.println("Guest checked in. Status is now CHECKED IN.");
         } else {
             System.out.println("Check-in cancelled.");
+        }
+    }
+
+    private void completeBooking() {
+        Reservation r = askForReservation();
+        if (r == null) return;
+        if (r.getStatus() != ReservationStatus.CHECKED_IN) {
+            System.out.println("Only CHECKED IN bookings can be marked COMPLETED. Current status: " + r.getStatus());
+            return;
+        }
+        CustomerMenu.printDetails(r);
+        if (r.getBalance().signum() > 0) {
+            System.out.printf("Warning: guest still has an unpaid balance of P%,.2f.%n", r.getBalance());
+        }
+        if (InputHelper.confirm("Mark " + r.getGuestName() + "'s stay as COMPLETED?")) {
+            r.setStatus(ReservationStatus.COMPLETED);
+            repo.save();
+            System.out.println(r.getReference() + " is now COMPLETED.");
+        } else {
+            System.out.println("No changes made.");
+        }
+    }
+
+    private void cancelBooking() {
+        Reservation r = askForReservation();
+        if (r == null) return;
+        if (r.getStatus() == ReservationStatus.CANCELLED || r.getStatus() == ReservationStatus.COMPLETED) {
+            System.out.println("This booking is already " + r.getStatus() + " and cannot be cancelled.");
+            return;
+        }
+        if (r.getStatus() == ReservationStatus.CHECKED_IN) {
+            System.out.println("The guest is already checked in. Mark the stay COMPLETED instead.");
+            return;
+        }
+        CustomerMenu.printDetails(r);
+        String reason = InputHelper.readText("Cancellation reason: ");
+        if (InputHelper.confirm("Cancel booking " + r.getReference() + "?")) {
+            r.setStatus(ReservationStatus.CANCELLED);
+            r.setNote("Cancelled on " + java.time.LocalDate.now() + ": " + reason);
+            repo.save();
+            System.out.println(r.getReference() + " is now CANCELLED.");
+        } else {
+            System.out.println("Cancellation aborted.");
         }
     }
 
