@@ -3,59 +3,47 @@ package solara;
 import java.util.List;
 
 public class AdminMenu {
-    // Demo credentials (also listed in README.md)
-    private static final String ADMIN_USER = "admin";
-    private static final String ADMIN_PIN = "solara123";
-
     private final ReservationRepository repo;
     private final PriceList prices;
+    private final UserRepository users;
     private final PaymentManager payments;
+    private User currentUser;
+    private boolean isAdmin;
 
-    public AdminMenu(ReservationRepository repo, PriceList prices) {
+    public AdminMenu(ReservationRepository repo, PriceList prices, UserRepository users) {
         this.repo = repo;
         this.prices = prices;
+        this.users = users;
         this.payments = new PaymentManager(repo);
     }
 
-    public void show() {
-        if (!login()) return;
+    /** Shows the menu for the logged-in ADMIN or STAFF user. Returns when they log out. */
+    public void show(User user) {
+        this.currentUser = user;
+        this.isAdmin = user.getRole().equals("ADMIN");
+
         while (true) {
-            System.out.println("\n===== ADMIN MENU =====");
+            System.out.println("\n===== " + user.getRole() + " MENU =====");
             System.out.println("1. View All Reservations");
             System.out.println("2. Search Reservation (reference or guest name)");
             System.out.println("3. View Reservations by Status");
-            System.out.println("4. Reservation Management (confirm / check in / ...)");
+            System.out.println("4. Reservation Management");
             System.out.println("5. Payments");
-            System.out.println("6. Edit Prices         [TODO - teammate]");
-            System.out.println("7. Statistics          [TODO - teammate]");
-            System.out.println("8. Export to CSV       [TODO - teammate]");
+            if (isAdmin) {
+                System.out.println("6. Manage User Accounts");
+            }
             System.out.println("0. Log out");
-            int choice = InputHelper.readInt("Choose: ", 0, 8);
+            int choice = InputHelper.readInt("Choose: ", 0, isAdmin ? 6 : 5);
             switch (choice) {
                 case 1 -> { printTable(repo.getAll()); InputHelper.pause(); }
                 case 2 -> search();
                 case 3 -> viewByStatus();
                 case 4 -> managementMenu();
                 case 5 -> payments.show();
-                case 6, 7, 8 -> { System.out.println("Coming soon (not built yet)."); }
+                case 6 -> manageUsers();
                 case 0 -> { System.out.println("Logged out."); return; }
             }
         }
-    }
-
-    private boolean login() {
-        System.out.println("\n--- ADMIN LOGIN ---");
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            String user = InputHelper.readText("Username: ");
-            String pin = InputHelper.readText("Password/PIN: ");
-            if (user.equals(ADMIN_USER) && pin.equals(ADMIN_PIN)) {
-                System.out.println("Login successful.");
-                return true;
-            }
-            System.out.println("Wrong username or password. Attempts left: " + (3 - attempt));
-        }
-        System.out.println("Too many failed attempts. Returning to main menu.");
-        return false;
     }
 
     private void search() {
@@ -85,15 +73,19 @@ public class AdminMenu {
             System.out.println("\n--- RESERVATION MANAGEMENT ---");
             System.out.println("1. Confirm a PENDING booking");
             System.out.println("2. Check In a CONFIRMED booking");
-            System.out.println("3. Mark a CHECKED IN booking COMPLETED");
-            System.out.println("4. Cancel a booking");
+            if (isAdmin) {
+                System.out.println("3. Mark a CHECKED IN booking COMPLETED");
+                System.out.println("4. Cancel a booking");
+                System.out.println("5. Delete a booking record");
+            }
             System.out.println("0. Back");
-            int choice = InputHelper.readInt("Choose: ", 0, 4);
+            int choice = InputHelper.readInt("Choose: ", 0, isAdmin ? 5 : 2);
             switch (choice) {
                 case 1 -> confirmBooking();
                 case 2 -> checkInGuest();
                 case 3 -> completeBooking();
                 case 4 -> cancelBooking();
+                case 5 -> deleteBooking();
                 case 0 -> { return; }
             }
         }
@@ -172,6 +164,125 @@ public class AdminMenu {
             System.out.println(r.getReference() + " is now CANCELLED.");
         } else {
             System.out.println("Cancellation aborted.");
+        }
+    }
+
+    /** DELETE: permanently removes a booking. Only CANCELLED or COMPLETED bookings can be deleted. */
+    private void deleteBooking() {
+        Reservation r = askForReservation();
+        if (r == null) return;
+        if (r.getStatus() != ReservationStatus.CANCELLED && r.getStatus() != ReservationStatus.COMPLETED) {
+            System.out.println("Only CANCELLED or COMPLETED bookings can be deleted. Current status: " + r.getStatus());
+            return;
+        }
+        CustomerMenu.printDetails(r);
+        if (InputHelper.confirm("Permanently delete " + r.getReference() + "? This cannot be undone")) {
+            repo.delete(r);
+            System.out.println("Booking record deleted.");
+        } else {
+            System.out.println("Nothing was deleted.");
+        }
+    }
+
+    // ---------- Manage user accounts (ADMIN only) ----------
+    private void manageUsers() {
+        while (true) {
+            System.out.println("\n--- MANAGE USER ACCOUNTS ---");
+            System.out.println("1. View all accounts");
+            System.out.println("2. Create an account");
+            System.out.println("3. Update an account (password / role)");
+            System.out.println("4. Delete an account");
+            System.out.println("0. Back");
+            int choice = InputHelper.readInt("Choose: ", 0, 4);
+            switch (choice) {
+                case 1 -> listUsers();
+                case 2 -> createUser();
+                case 3 -> updateUser();
+                case 4 -> deleteUser();
+                case 0 -> { return; }
+            }
+        }
+    }
+
+    private void listUsers() {
+        System.out.println("\n" + String.format("%-16s %-24s %-10s", "USERNAME", "FULL NAME", "ROLE"));
+        System.out.println("-".repeat(52));
+        for (int i = 0; i < users.getAll().size(); i++) {
+            User u = users.getAll().get(i);
+            System.out.println(String.format("%-16s %-24s %-10s", u.getUsername(), u.getFullName(), u.getRole()));
+        }
+    }
+
+    private String askRole() {
+        System.out.println("1. ADMIN\n2. STAFF\n3. CUSTOMER");
+        int pick = InputHelper.readInt("Choose role: ", 1, 3);
+        if (pick == 1) return "ADMIN";
+        if (pick == 2) return "STAFF";
+        return "CUSTOMER";
+    }
+
+    private void createUser() {
+        String username = InputHelper.readText("New username: ");
+        if (username.contains("|") || username.contains(" ")) {
+            System.out.println("  Error: username cannot contain spaces or the | symbol.");
+            return;
+        }
+        if (users.findByUsername(username) != null) {
+            System.out.println("  Error: that username already exists.");
+            return;
+        }
+        String fullName = InputHelper.readText("Full name: ");
+        String password = InputHelper.readText("Password: ");
+        if (password.contains("|")) {
+            System.out.println("  Error: password cannot contain the | symbol.");
+            return;
+        }
+        String role = askRole();
+        users.add(new User(username, password, fullName, role));
+        System.out.println("Account created: " + username + " (" + role + ")");
+    }
+
+    private void updateUser() {
+        User u = users.findByUsername(InputHelper.readText("Username to update: "));
+        if (u == null) {
+            System.out.println("No account with that username.");
+            return;
+        }
+        System.out.println("1. Change password\n2. Change role");
+        int pick = InputHelper.readInt("Choose: ", 1, 2);
+        if (pick == 1) {
+            String password = InputHelper.readText("New password: ");
+            if (password.contains("|")) {
+                System.out.println("  Error: password cannot contain the | symbol.");
+                return;
+            }
+            u.setPassword(password);
+        } else {
+            if (u == currentUser) {
+                System.out.println("You cannot change your own role.");
+                return;
+            }
+            u.setRole(askRole());
+        }
+        users.save();
+        System.out.println("Account updated.");
+    }
+
+    private void deleteUser() {
+        User u = users.findByUsername(InputHelper.readText("Username to delete: "));
+        if (u == null) {
+            System.out.println("No account with that username.");
+            return;
+        }
+        if (u == currentUser) {
+            System.out.println("You cannot delete the account you are logged in with.");
+            return;
+        }
+        if (InputHelper.confirm("Delete account " + u.getUsername() + "?")) {
+            users.delete(u);
+            System.out.println("Account deleted.");
+        } else {
+            System.out.println("Nothing was deleted.");
         }
     }
 

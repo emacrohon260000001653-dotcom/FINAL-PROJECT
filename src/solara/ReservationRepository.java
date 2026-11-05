@@ -69,6 +69,11 @@ public class ReservationRepository {
         save();
     }
 
+    public void delete(Reservation reservation) {
+        reservations.remove(reservation);
+        save();
+    }
+
     public List<Reservation> getAll() {
         return reservations;
     }
